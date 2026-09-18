@@ -8,7 +8,9 @@ import os
 import tempfile
 import unittest
 
+import calculator_core
 from calculator import CalculatorModel, load_history, save_history
+from calculator_core import SQRT, press
 
 
 def run(keys):
@@ -175,6 +177,77 @@ class TestPostEquals(unittest.TestCase):
         model.clear()
         model.append("7")
         self.assertEqual(model.expression, "7")
+
+
+class TestPress(unittest.TestCase):
+    """The shared key handler used by both the desktop app and the web page."""
+
+    def setUp(self):
+        self.model = CalculatorModel()
+
+    def key(self, *labels):
+        display = "0"
+        record = None
+        for label in labels:
+            display, record = press(self.model, label)
+        return display, record
+
+    def test_completes_a_calculation_and_reports_it(self):
+        display, record = self.key("1", "+", "2", "=")
+        self.assertEqual(display, "3")
+        self.assertEqual(record, ("1+2", "3"))
+
+    def test_digits_echo_the_running_expression(self):
+        display, record = self.key("1", "+", "2")
+        self.assertEqual(display, "1+2")
+        self.assertIsNone(record)
+
+    def test_clear(self):
+        self.assertEqual(self.key("1", "2", "C")[0], "0")
+
+    def test_backspace_on_empty_shows_zero(self):
+        self.assertEqual(self.key("<")[0], "0")
+
+    def test_backspace_removes_last_digit(self):
+        self.assertEqual(self.key("1", "2", "3", "<")[0], "12")
+
+    def test_divide_by_zero_shows_message_and_clears(self):
+        display, record = self.key("5", "/", "0", "=")
+        self.assertEqual(display, "Error: divide by zero")
+        self.assertIsNone(record)
+        self.assertEqual(self.model.expression, "")
+
+    def test_sqrt(self):
+        self.assertEqual(self.key("9", SQRT)[0], "3")
+
+    def test_sqrt_without_a_number_shows_error(self):
+        self.assertEqual(self.key(SQRT)[0], "Error")
+
+    def test_sign_toggle(self):
+        self.assertEqual(self.key("7", "+/-")[0], "-7")
+
+    def test_percent(self):
+        self.assertEqual(self.key("2", "0", "0", "+", "1", "0", "%", "=")[0], "220")
+
+    def test_operator_continues_after_equals(self):
+        display, record = self.key("1", "+", "2", "=", "+", "4", "=")
+        self.assertEqual(display, "7")
+        self.assertEqual(record, ("3+4", "7"))
+
+    def test_digit_starts_fresh_after_equals(self):
+        self.assertEqual(self.key("1", "+", "2", "=", "5")[0], "5")
+
+    def test_paren_starts_fresh_after_equals(self):
+        self.assertEqual(self.key("1", "+", "2", "=", "(")[0], "(")
+
+
+class TestCoreIsGuiFree(unittest.TestCase):
+    def test_core_does_not_reference_tkinter(self):
+        # The web build runs this module in a browser, where tkinter does not
+        # exist. Guard against a GUI import creeping back in.
+        with open(calculator_core.__file__, encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertNotIn("tkinter", source)
 
 
 class TestHistoryPersistence(unittest.TestCase):

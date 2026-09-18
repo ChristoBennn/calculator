@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculator</title>
+<style>
+  :root {
+    --bg: #12151c;
+    --panel: #1b202b;
+    --key: #262c3a;
+    --key-hover: #333b4d;
+    --accent: #3d7dff;
+    --accent-hover: #5590ff;
+    --danger: #ff6b6b;
+    --text: #eef2f8;
+    --muted: #8b95a7;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  .app {
+    display: flex;
+    gap: 16px;
+    align-items: stretch;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .card {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .45);
+  }
+
+  .calculator { width: 340px; }
+
+  .display {
+    background: #0d1017;
+    border-radius: 10px;
+    padding: 18px 16px;
+    text-align: right;
+    font-size: 2rem;
+    font-variant-numeric: tabular-nums;
+    min-height: 76px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    overflow-x: auto;
+    white-space: nowrap;
+    margin-bottom: 14px;
+  }
+
+  .display.error { color: var(--danger); font-size: 1.15rem; }
+
+  .keys {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+
+  .keys button {
+    font: inherit;
+    font-size: 1.15rem;
+    padding: 16px 0;
+    border: none;
+    border-radius: 10px;
+    background: var(--key);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease, transform .06s ease;
+  }
+
+  .keys button:hover:not(:disabled) { background: var(--key-hover); }
+  .keys button:active:not(:disabled) { transform: scale(.96); }
+  .keys button:disabled { opacity: .45; cursor: progress; }
+
+  .keys button.op { color: var(--accent); font-weight: 600; }
+  .keys button.equals { background: var(--accent); color: #fff; }
+  .keys button.equals:hover:not(:disabled) { background: var(--accent-hover); }
+  .keys button.wide { grid-column: span 2; }
+
+  .history {
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .history h2 {
+    margin: 0;
+    font-size: .95rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+  }
+
+  .history ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex: 1;
+    overflow-y: auto;
+    max-height: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .history li {
+    background: var(--key);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: .9rem;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+  }
+
+  .history li:hover { background: var(--key-hover); }
+  .history .empty { color: var(--muted); cursor: default; background: none; padding-left: 0; }
+  .history .empty:hover { background: none; }
+
+  .history .clear {
+    font: inherit;
+    font-size: .9rem;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    background: var(--key);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .history .clear:hover { background: var(--key-hover); }
+
+  .status {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--muted);
+    font-size: .82rem;
+    margin-top: 10px;
+    min-height: 1.2em;
+  }
+
+  .status.error { color: var(--danger); }
+
+  .hint {
+    text-align: center;
+    color: var(--muted);
+    font-size: .75rem;
+    margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="card calculator">
+    <div class="display" id="display" aria-live="polite">0</div>
+    <div class="keys" id="keys"></div>
+    <div class="status" id="status">Loading Python runtime&hellip;</div>
+    <div class="hint">Keyboard works too &mdash; press <b>r</b> for square root, <b>Esc</b> to clear</div>
+  </div>
+
+  <div class="card history">
+    <h2>History</h2>
+    <ul id="history"></ul>
+    <button class="clear" id="clear-history" type="button">Clear History</button>
+  </div>
+</div>
+
+<script type="module">
+import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs";
+
+// Layout mirrors calculator.py: [label, row, column, columnspan].
+const BUTTONS = [
+  ["C", 0, 0, 1], ["(", 0, 1, 1], [")", 0, 2, 1], ["\u221A", 0, 3, 1],
+  ["7", 1, 0, 1], ["8", 1, 1, 1], ["9", 1, 2, 1], ["/", 1, 3, 1],
+  ["4", 2, 0, 1], ["5", 2, 1, 1], ["6", 2, 2, 1], ["x", 2, 3, 1],
+  ["1", 3, 0, 1], ["2", 3, 1, 1], ["3", 3, 2, 1], ["-", 3, 3, 1],
+  ["0", 4, 0, 1], [".", 4, 1, 1], ["+/-", 4, 2, 1], ["+", 4, 3, 1],
+  ["%", 5, 0, 1], ["<", 5, 1, 1], ["=", 5, 2, 2],
+];
+
+const OPERATORS = new Set(["/", "x", "-", "+", "%"]);
+const HISTORY_KEY = "calculator.history.v1";
+
+const displayEl = document.getElementById("display");
+const keysEl = document.getElementById("keys");
+const statusEl = document.getElementById("status");
+const historyEl = document.getElementById("history");
+const clearHistoryEl = document.getElementById("clear-history");
+
+let pyPress = null;
+let pyRecall = null;
+let history = loadHistory();
+
+// ---------------------------------------------------------------- history
+function loadHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HISTORY_KEY));
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((e) => Array.isArray(e) && e.length === 2).map((e) => [String(e[0]), String(e[1])]);
+  } catch {
+    return []; // Corrupt or unavailable storage just means no history.
+  }
+}
+
+function saveHistory() {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    /* Ignore: history is a convenience, never break the calculator. */
+  }
+}
+
+function renderHistory() {
+  historyEl.replaceChildren();
+  if (history.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "No calculations yet";
+    historyEl.append(empty);
+    return;
+  }
+  // Newest first, and clicking an entry reuses its result.
+  history
+    .map(([expr, result], index) => ({ expr, result, index }))
+    .reverse()
+    .forEach(({ expr, result, index }) => {
+      const item = document.createElement("li");
+      item.textContent = `${expr} = ${result}`;
+      item.title = "Click to use this result";
+      item.addEventListener("click", () => recall(result, index));
+      historyEl.append(item);
+    });
+}
+
+function addHistory(expr, result) {
+  history.push([expr, result]);
+  saveHistory();
+  renderHistory();
+}
+
+function recall(value) {
+  if (!pyRecall) return;
+  setDisplay(pyRecall(value), false);
+  setStatus("Recalled " + value);
+}
+
+// ---------------------------------------------------------------- display
+function setDisplay(text, isError) {
+  displayEl.textContent = text === "" ? "0" : text;
+  displayEl.classList.toggle("error", Boolean(isError));
+  displayEl.scrollLeft = displayEl.scrollWidth;
+}
+
+let statusTimer = null;
+function setStatus(message, isError) {
+  if (statusTimer) {
+    clearTimeout(statusTimer);
+    statusTimer = null;
+  }
+  statusEl.textContent = message;
+  statusEl.classList.toggle("error", Boolean(isError));
+  if (!isError && message) {
+    statusTimer = setTimeout(() => {
+      statusEl.textContent = "Python " + pyodideVersion + " running in your browser";
+    }, 1500);
+  }
+}
+
+// ---------------------------------------------------------------- keypad
+function buildKeys() {
+  for (const [label, row, col, span] of BUTTONS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.dataset.label = label;
+    button.style.gridRow = row + 1;
+    button.style.gridColumn = `${col + 1} / span ${span}`;
+    if (OPERATORS.has(label)) button.classList.add("op");
+    if (label === "=") button.classList.add("equals");
+    if (span > 1) button.classList.add("wide");
+    button.disabled = true;
+    button.addEventListener("click", () => handlePress(label));
+    keysEl.append(button);
+  }
+}
+
+function handlePress(label) {
+  if (!pyPress) return;
+  let payload;
+  try {
+    payload = JSON.parse(pyPress(label));
+  } catch (error) {
+    setStatus("Calculator error: " + error, true);
+    return;
+  }
+  setDisplay(payload.display, String(payload.display).startsWith("Error"));
+  if (payload.record) {
+    addHistory(payload.record[0], payload.record[1]);
+    setStatus("");
+  }
+}
+
+function keysFor(event) {
+  const { key } = event;
+  if ("0123456789.+-*/%()".includes(key)) return key;
+  if (key === "r" || key === "R") return "\u221A";
+  if (key === "Enter" || key === "=") return "=";
+  if (key === "Backspace") return "<";
+  if (key === "Escape" || key === "c" || key === "C") return "C";
+  return null;
+}
+
+document.addEventListener("keydown", (event) => {
+  const label = keysFor(event);
+  if (label === null || pyPress === null || event.ctrlKey || event.metaKey) return;
+  event.preventDefault();
+  handlePress(label);
+});
+
+clearHistoryEl.addEventListener("click", () => {
+  history = [];
+  saveHistory();
+  renderHistory();
+  setStatus("History cleared");
+});
+
+// ---------------------------------------------------------------- startup
+let pyodideVersion = "";
+
+buildKeys();
+renderHistory();
+
+(async function start() {
+  try {
+    const pyodide = await loadPyodide({
+      indexURL: "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/",
+    });
+    pyodideVersion = pyodide.version;
+
+    // Load the very same logic module the desktop app uses.
+    const coreSource = await (await fetch(new URL("calculator_core.py", import.meta.url))).text();
+    await pyodide.runPythonAsync(coreSource);
+
+    // A thin JSON-speaking API so JavaScript never reimplements the logic.
+    await pyodide.runPythonAsync(`
+import json
+_model = CalculatorModel()
+
+def api_press(label):
+    display, record = press(_model, label)
+    return json.dumps({"display": display, "record": record})
+
+def api_recall(value):
+    _model.clear()
+    _model.append(value)
+    return _model.expression or "0"
+`);
+
+    pyPress = pyodide.globals.get("api_press");
+    pyRecall = pyodide.globals.get("api_recall");
+
+    document.querySelectorAll(".keys button").forEach((button) => {
+      button.disabled = false;
+    });
+    setStatus("Python " + pyodideVersion + " running in your browser");
+  } catch (error) {
+    setStatus("Could not start the Python runtime: " + error, true);
+  }
+})();
+</script>
+</body>
+</html>
